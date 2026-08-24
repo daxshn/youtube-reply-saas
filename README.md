@@ -1,36 +1,72 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ReplyStudio AI — YouTube Comment Reply SaaS 🚀
 
-## Getting Started
+A production-ready, mobile-friendly AI-powered YouTube Comment Reply SaaS application built with **Next.js 15 App Router**, **TypeScript**, **TailwindCSS**, **Supabase Database**, **Google OAuth**, and **YouTube Data API v3**.
 
-First, run the development server:
+---
+
+## 🔒 Primary Safety Rule
+
+> **EVERYTHING REQUIRES MANUAL APPROVAL.**
+> The system **NEVER** automatically posts replies to YouTube without explicit approval by the content creator.
+
+---
+
+## ✨ Features
+
+- 📱 **Mobile & Desktop Dashboard**: Optimized for quick phone approval on the go.
+- 🔑 **Google & YouTube OAuth Integration**: Store OAuth tokens securely in Supabase RLS and automatically refresh expired tokens before API calls.
+- 📥 **Smart Comment Fetcher**:
+  - Only fetches comments where the channel has not replied yet.
+  - Ignores deleted, duplicate, or previously processed comments.
+  - Automatic Spam Detection (WhatsApp/crypto bot filters).
+- 🧠 **Tone-Matched AI Reply Engine**:
+  - Configurable OpenAI Compatible API (`OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`).
+  - Natural American English, human, non-robotic, non-repetitive, 1–3 sentences.
+  - Matches comment tone: Warm (Positive), Helpful (Questions), Respectful (Criticism), Playful (Funny).
+- ⚡ **Approval Actions**:
+  - **Approve**: Immediately publishes reply to YouTube via `comments.insert` API and updates status to `posted`.
+  - **Edit**: Refine AI text before approving.
+  - **Reject**: Mark comment as rejected.
+  - **Regenerate**: Trigger fresh AI response avoiding previous generations.
+- ⚡ **Bonus Features**:
+  - **Bulk Approve**, **Bulk Reject**, and **Bulk Regenerate**.
+  - **Audit History Drawer**: Complete activity log per comment.
+  - **Retry Failed Replies**.
+  - **Channel Analytics & Comment Statistics**.
+  - **Custom Settings**: Persona prompt editor, temperature slider, max tokens, tone selector.
+
+---
+
+## 🛠️ Stack
+
+- **Frontend**: Next.js 15, React 19, TypeScript, TailwindCSS v4, Lucide Icons
+- **Backend**: Next.js API Routes, NextAuth, Google OAuth 2.0
+- **Database**: Supabase PostgreSQL with RLS and automated updated_at triggers
+- **APIs**: YouTube Data API v3, OpenAI Compatible API
+
+---
+
+## 🚀 Getting Started
 
 ```bash
+# Clone the repository
+git clone https://github.com/your-username/youtube-reply-saas.git
+cd youtube-reply-saas
+
+# Install dependencies
+npm install
+
+# Copy environment variables
+cp .env.example .env.local
+
+# Run the development server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Visit `http://localhost:3000` to open the application!
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 📄 License
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
