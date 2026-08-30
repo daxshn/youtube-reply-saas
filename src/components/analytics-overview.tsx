@@ -84,7 +84,7 @@ export default function AnalyticsOverview({ stats }: AnalyticsOverviewProps) {
 
           <div className="space-y-3 pt-2">
             {tones.map((tone) => {
-              const percentage = Math.round((tone.count / maxToneCount) * 100);
+              const percentage = stats.total_comments > 0 ? Math.round((tone.count / stats.total_comments) * 100) : 0;
               return (
                 <div key={tone.key} className="space-y-1">
                   <div className="flex items-center justify-between text-xs font-medium">
@@ -111,22 +111,26 @@ export default function AnalyticsOverview({ stats }: AnalyticsOverviewProps) {
           </div>
 
           <div className="space-y-3">
-            {stats.top_videos.map((vid) => (
-              <div
-                key={vid.video_id}
-                className="flex items-center justify-between p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80"
-              >
-                <div className="min-w-0 pr-3">
-                  <h4 className="text-xs font-semibold text-slate-200 truncate">{vid.title}</h4>
-                  <p className="text-[11px] text-slate-400">{vid.comment_count} total comments</p>
+            {stats.top_videos.length === 0 ? (
+              <p className="text-xs text-slate-400 py-6 text-center">No active channel videos synced yet.</p>
+            ) : (
+              stats.top_videos.map((vid) => (
+                <div
+                  key={vid.video_id}
+                  className="flex items-center justify-between p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80"
+                >
+                  <div className="min-w-0 pr-3">
+                    <h4 className="text-xs font-semibold text-slate-200 truncate">{vid.title}</h4>
+                    <p className="text-[11px] text-slate-400">{vid.comment_count} total comments</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                      {vid.pending_count} pending
+                    </span>
+                  </div>
                 </div>
-                <div className="shrink-0 text-right">
-                  <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30">
-                    {vid.pending_count} pending
-                  </span>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>
