@@ -55,10 +55,19 @@ export async function GET() {
       console.error('[API GET /comments/fetch DB Error] Videos query error:', vidErr);
     }
 
+    // Build dual lookup maps for videos by UUID (v.id) and YouTube Video ID (v.youtube_video_id)
+    const videoByUuidMap = new Map<string, any>();
+    const videoByYtIdMap = new Map<string, any>();
+
+    for (const v of (videos || [])) {
+      if (v.id) videoByUuidMap.set(v.id, v);
+      if (v.youtube_video_id) videoByYtIdMap.set(v.youtube_video_id, v);
+    }
+
     // Retrieve Comments & Generated Replies
     const { data: rawComments, error: commErr } = await supabase
       .from('comments')
-      .select('*, video:videos(*), generated_replies(*)')
+      .select('*, generated_replies(*)')
       .eq('youtube_account_id', youtubeAccount.id)
       .order('published_at', { ascending: false });
 
@@ -66,10 +75,17 @@ export async function GET() {
       console.error('[API GET /comments/fetch DB Error] Comments query error:', commErr);
     }
 
-    const comments = (rawComments || []).map((c: any) => ({
-      ...c,
-      generated_reply: c.generated_replies?.[0] || null,
-    }));
+    const comments = (rawComments || []).map((c: any) => {
+      const matchedVideo = c.video_id
+        ? videoByUuidMap.get(c.video_id) || videoByYtIdMap.get(c.video_id)
+        : null;
+
+      return {
+        ...c,
+        video: matchedVideo || null,
+        generated_reply: c.generated_replies?.[0] || null,
+      };
+    });
 
     console.log(`[API GET /comments/fetch Success] Found ${videos?.length || 0} videos and ${comments.length} comments for channel "${youtubeAccount.channel_title}".`);
 
@@ -156,12 +172,12 @@ export async function POST(req: Request) {
         console.error(`[API POST /comments/fetch DB Error] Failed upserting video ${raw.youtubeVideoId}:`, videoErr);
       }
 
-      // 2. Insert Comment into database
+      // 2. Insert Comment into database (store video.id UUID)
       const { data: comment, error: commentErr } = await supabase
         .from('comments')
         .insert({
           youtube_account_id: fetchResult.youtubeAccountId,
-          video_id: video?.id || null,
+          video_id: video?.id || raw.youtubeVideoId,
           youtube_comment_id: raw.youtubeCommentId,
           author_name: raw.authorName,
           author_avatar: raw.authorAvatar,
@@ -173,7 +189,7 @@ export async function POST(req: Request) {
           is_duplicate: false,
           is_deleted: false,
         })
-        .select('*, video:videos(*)')
+        .select('*, generated_replies(*)')
         .single();
 
       if (commentErr || !comment) {
@@ -182,6 +198,23 @@ export async function POST(req: Request) {
       }
 
       console.log(`[API POST /comments/fetch DB Success] Saved comment ${comment.id} by "${comment.author_name}"`);
+
+      const commentWithVideo = { ...comment, video: video || null };
+
+      // Update matching video comment_count based on exact comments count in DB
+      if (video?.id) {
+        const { count: commentCount } = await supabase
+          .from('comments')
+          .select('*', { count: 'exact', head: true })
+          .or(`video_id.eq.${video.id},video_id.eq.${raw.youtubeVideoId}`);
+
+        if (commentCount !== null && commentCount !== undefined) {
+          await supabase
+            .from('videos')
+            .update({ comment_count: commentCount, updated_at: new Date().toISOString() })
+            .eq('id', video.id);
+        }
+      }
 
       // 3. If not spam, generate AI reply draft
       if (!isSpam) {
@@ -217,9 +250,9 @@ export async function POST(req: Request) {
           reply_text: aiResult.replyText,
         });
 
-        processedComments.push({ ...comment, generated_reply: genReply });
+        processedComments.push({ ...commentWithVideo, generated_reply: genReply });
       } else {
-        processedComments.push({ ...comment, generated_reply: null });
+        processedComments.push({ ...commentWithVideo, generated_reply: null });
       }
     }
 

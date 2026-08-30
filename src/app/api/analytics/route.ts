@@ -9,14 +9,32 @@ export async function GET() {
 
     const supabase = getSupabaseAdmin();
 
-    // Query all comments with video join
-    const { data: comments, error } = await supabase
-      .from('comments')
-      .select('id, reply_status, detected_tone, video_id, videos ( id, title )');
+    // 1. Fetch all videos for reference
+    const { data: videos, error: vidErr } = await supabase
+      .from('videos')
+      .select('id, youtube_video_id, title, thumbnail_url');
 
-    if (error) {
-      console.error('[Analytics API Error] Failed fetching comments:', error);
-      throw new Error(`Failed to query analytics: ${error.message}`);
+    if (vidErr) {
+      console.error('[Analytics API DB Error] Videos query error:', vidErr);
+    }
+
+    // Build dual lookup maps for videos by UUID (v.id) and YouTube Video ID (v.youtube_video_id)
+    const videoByUuidMap = new Map<string, any>();
+    const videoByYtIdMap = new Map<string, any>();
+
+    for (const v of (videos || [])) {
+      if (v.id) videoByUuidMap.set(v.id, v);
+      if (v.youtube_video_id) videoByYtIdMap.set(v.youtube_video_id, v);
+    }
+
+    // 2. Fetch all comments
+    const { data: comments, error: commErr } = await supabase
+      .from('comments')
+      .select('id, reply_status, detected_tone, video_id');
+
+    if (commErr) {
+      console.error('[Analytics API DB Error] Comments query error:', commErr);
+      throw new Error(`Failed to query analytics comments: ${commErr.message}`);
     }
 
     const commentList = comments || [];
@@ -35,7 +53,7 @@ export async function GET() {
       neutral: 0,
     };
 
-    const videoMap: Record<string, { video_id: string; title: string; comment_count: number; pending_count: number }> = {};
+    const videoStatsMap: Record<string, { video_id: string; title: string; comment_count: number; pending_count: number }> = {};
 
     for (const c of commentList) {
       const status = c.reply_status;
@@ -51,21 +69,32 @@ export async function GET() {
       else if (tone === 'funny') toneDistribution.funny++;
       else toneDistribution.neutral++;
 
-      const vidId = c.video_id || 'unknown';
-      const vidTitle = (c.videos as any)?.title || 'YouTube Video';
+      // Dual join: match c.video_id against v.id or v.youtube_video_id
+      const matchedVideo = c.video_id
+        ? videoByUuidMap.get(c.video_id) || videoByYtIdMap.get(c.video_id)
+        : null;
 
-      if (!videoMap[vidId]) {
-        videoMap[vidId] = { video_id: vidId, title: vidTitle, comment_count: 0, pending_count: 0 };
+      const vidKey = matchedVideo ? matchedVideo.id : (c.video_id || 'unknown');
+      const vidTitle = matchedVideo?.title || 'Untitled Video';
+
+      if (!videoStatsMap[vidKey]) {
+        videoStatsMap[vidKey] = {
+          video_id: vidKey,
+          title: vidTitle,
+          comment_count: 0,
+          pending_count: 0,
+        };
       }
-      videoMap[vidId].comment_count++;
+      videoStatsMap[vidKey].comment_count++;
       if (status === 'pending') {
-        videoMap[vidId].pending_count++;
+        videoStatsMap[vidKey].pending_count++;
       }
     }
 
     const responseRate = totalNum > 0 ? Number((((postedNum + approvedNum) / totalNum) * 100).toFixed(1)) : 0;
 
-    const top_videos = Object.values(videoMap)
+    // Top active videos calculated dynamically strictly from comments table counts
+    const top_videos = Object.values(videoStatsMap)
       .sort((a, b) => b.comment_count - a.comment_count)
       .slice(0, 5);
 

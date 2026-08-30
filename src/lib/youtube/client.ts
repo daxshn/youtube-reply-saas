@@ -22,7 +22,7 @@ export interface InitialTokens {
 
 /**
  * Automatically detects connected channel details (Channel ID, Title, Avatar)
- * and syncs channel uploads/videos into Supabase.
+ * and syncs channel uploads/videos into Supabase with live comment counts.
  */
 export async function fetchAndStoreChannelDetailsAndVideos(userId: string, initialTokens?: InitialTokens) {
   const supabase = getSupabaseAdmin();
@@ -119,22 +119,51 @@ export async function fetchAndStoreChannelDetailsAndVideos(userId: string, initi
     });
 
     const videoItems = playlistRes.data.items || [];
+    const videoIds: string[] = videoItems
+      .map((item: any) => item.snippet?.resourceId?.videoId)
+      .filter(Boolean);
+
+    // Fetch video statistics to get real comment counts
+    const videoDetailsMap: Record<string, { title: string; thumbnailUrl: string; commentCount: number }> = {};
+    if (videoIds.length > 0) {
+      try {
+        const detailsRes = await youtubeClient.videos.list({
+          part: ['snippet', 'statistics'],
+          id: videoIds,
+        });
+        const detailsList = detailsRes.data.items || [];
+        for (const det of detailsList) {
+          if (det.id) {
+            videoDetailsMap[det.id] = {
+              title: det.snippet?.title || '',
+              thumbnailUrl: det.snippet?.thumbnails?.high?.url || det.snippet?.thumbnails?.default?.url || '',
+              commentCount: parseInt(det.statistics?.commentCount || '0', 10),
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('[YouTube API Warning] Failed fetching video statistics details:', err);
+      }
+    }
+
     for (const item of videoItems) {
       const vidSnippet = item.snippet;
       const videoId = vidSnippet?.resourceId?.videoId;
       if (!videoId) continue;
 
-      const title = vidSnippet?.title || 'YouTube Video';
-      const thumbnailUrl = vidSnippet?.thumbnails?.high?.url || vidSnippet?.thumbnails?.default?.url || '';
+      const details = videoDetailsMap[videoId];
+      const title = details?.title || vidSnippet?.title || 'Untitled Video';
+      const thumbnailUrl = details?.thumbnailUrl || vidSnippet?.thumbnails?.high?.url || vidSnippet?.thumbnails?.default?.url || '';
       const publishedAt = vidSnippet?.publishedAt || new Date().toISOString();
+      const commentCount = details?.commentCount || 0;
 
-      // Fix schema foreign key: youtube_account_id (NOT user_id)
       const { error: vidErr } = await supabase.from('videos').upsert({
         youtube_account_id: ytAccount.id,
         youtube_video_id: videoId,
         title,
         thumbnail_url: thumbnailUrl,
         published_at: publishedAt,
+        comment_count: commentCount,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'youtube_account_id,youtube_video_id' });
 
@@ -144,7 +173,7 @@ export async function fetchAndStoreChannelDetailsAndVideos(userId: string, initi
         savedVideosCount++;
       }
     }
-    console.log(`[Supabase Success] Upserted ${savedVideosCount} channel videos into videos table.`);
+    console.log(`[Supabase Success] Upserted ${savedVideosCount} channel videos with live comment counts into videos table.`);
   }
 
   return {
@@ -183,6 +212,31 @@ export async function fetchUnansweredYouTubeComments(userId: string): Promise<{
   const threads = response.data.items || [];
   console.log(`[YouTube API] Received ${threads.length} raw comment threads from YouTube.`);
 
+  // Collect unique video IDs to fetch exact titles
+  const videoIdSet = new Set<string>();
+  for (const thread of threads) {
+    const videoId = thread.snippet?.videoId;
+    if (videoId) videoIdSet.add(videoId);
+  }
+
+  const videoTitlesMap: Record<string, string> = {};
+  if (videoIdSet.size > 0) {
+    try {
+      const vRes = await youtube.videos.list({
+        part: ['snippet'],
+        id: Array.from(videoIdSet),
+      });
+      const vItems = vRes.data.items || [];
+      for (const v of vItems) {
+        if (v.id && v.snippet?.title) {
+          videoTitlesMap[v.id] = v.snippet.title;
+        }
+      }
+    } catch (err) {
+      console.warn('[YouTube API Warning] Could not fetch video titles map:', err);
+    }
+  }
+
   const fetchedRawComments: FetchedCommentRaw[] = [];
 
   for (const thread of threads) {
@@ -219,11 +273,13 @@ export async function fetchUnansweredYouTubeComments(userId: string): Promise<{
       continue;
     }
 
+    const realVideoTitle = videoTitlesMap[videoId] || (topLevel as any).videoTitle || 'Untitled Video';
+
     fetchedRawComments.push({
       youtubeCommentId: commentId,
       youtubeVideoId: videoId,
-      videoTitle: (topLevel as any).videoTitle || 'YouTube Upload Video',
-      authorName: topLevel.authorDisplayName || 'YouTube User',
+      videoTitle: realVideoTitle,
+      authorName: topLevel.authorDisplayName || 'YouTube Viewer',
       authorAvatar: topLevel.authorProfileImageUrl || '',
       authorChannelUrl: topLevel.authorChannelUrl || '',
       commentText: topLevel.textDisplay || '',
