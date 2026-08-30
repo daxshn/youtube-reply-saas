@@ -2,12 +2,28 @@
 
 import React, { useEffect, useState } from 'react';
 import AnalyticsOverview from '@/components/analytics-overview';
-import { INITIAL_ANALYTICS } from '@/lib/mock-data';
 import { AnalyticsStats } from '@/lib/types';
 import { BarChart3, RefreshCw } from 'lucide-react';
 
+const EMPTY_ANALYTICS: AnalyticsStats = {
+  total_comments: 0,
+  pending_count: 0,
+  approved_count: 0,
+  posted_count: 0,
+  rejected_count: 0,
+  response_rate: 0,
+  tone_distribution: {
+    positive: 0,
+    question: 0,
+    criticism: 0,
+    funny: 0,
+    neutral: 0,
+  },
+  top_videos: [],
+};
+
 export default function AnalyticsPage() {
-  const [stats, setStats] = useState<AnalyticsStats>(INITIAL_ANALYTICS);
+  const [stats, setStats] = useState<AnalyticsStats>(EMPTY_ANALYTICS);
   const [isLoading, setIsLoading] = useState(false);
 
   const fetchAnalytics = async () => {

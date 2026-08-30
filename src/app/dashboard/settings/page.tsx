@@ -2,12 +2,28 @@
 
 import React, { useEffect, useState } from 'react';
 import SettingsForm from '@/components/settings-form';
-import { INITIAL_DEFAULT_SETTINGS } from '@/lib/mock-data';
 import { UserSettings } from '@/lib/types';
 import { Settings } from 'lucide-react';
 
+const DEFAULT_SETTINGS: UserSettings = {
+  id: '',
+  user_id: '',
+  openai_api_key: '',
+  openai_base_url: 'https://api.openai.com/v1',
+  openai_model: 'gpt-4o-mini',
+  custom_prompt: 'You are an AI assistant replying to YouTube comments for a tech creator. Keep replies concise (1-2 sentences), friendly, helpful, and engage with the viewer directly. Use natural American English.',
+  temperature: 0.7,
+  max_tokens: 150,
+  reply_length: '1-3 sentences',
+  default_tone: 'auto',
+  auto_fetch_interval_minutes: 5,
+  spam_filter_enabled: true,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+};
+
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<UserSettings>(INITIAL_DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
     fetch('/api/settings')

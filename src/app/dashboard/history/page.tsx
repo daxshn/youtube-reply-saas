@@ -1,12 +1,63 @@
 'use client';
 
-import React from 'react';
-import { INITIAL_HISTORY, INITIAL_MOCK_COMMENTS } from '@/lib/mock-data';
+import React, { useEffect, useState } from 'react';
 import { formatRelativeTime } from '@/lib/utils';
-import { History, ShieldCheck, CheckCircle2, XCircle, RotateCw, Edit3, Sparkles } from 'lucide-react';
+import { History, CheckCircle2, XCircle, RotateCw, Edit3, Sparkles } from 'lucide-react';
+
+interface AuditHistoryItem {
+  id: string;
+  comment_id: string;
+  action: string;
+  reply_text: string | null;
+  youtube_reply_id: string | null;
+  action_by: string;
+  error_message: string | null;
+  created_at: string;
+  comment?: {
+    author_name: string;
+    comment_text: string;
+  };
+}
 
 export default function HistoryPage() {
-  const historyList = INITIAL_HISTORY;
+  const [historyList, setHistoryList] = useState<AuditHistoryItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadHistory() {
+      try {
+        const res = await fetch('/api/comments/fetch');
+        const data = await res.json();
+        if (data.success && data.history) {
+          setHistoryList(data.history);
+        } else if (data.comments) {
+          // Build history items from comments with generated/posted replies
+          const generatedHistory: AuditHistoryItem[] = data.comments
+            .filter((c: any) => c.reply_text)
+            .map((c: any) => ({
+              id: c.id,
+              comment_id: c.id,
+              action: c.reply_status === 'posted' ? 'posted' : c.reply_status === 'rejected' ? 'rejected' : 'generated',
+              reply_text: c.reply_text,
+              youtube_reply_id: c.youtube_comment_id,
+              action_by: 'ai',
+              error_message: null,
+              created_at: c.updated_at || c.created_at,
+              comment: {
+                author_name: c.author_name,
+                comment_text: c.comment_text,
+              },
+            }));
+          setHistoryList(generatedHistory);
+        }
+      } catch (err) {
+        console.error('Failed loading audit history:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    loadHistory();
+  }, []);
 
   const getActionIcon = (action: string) => {
     switch (action) {
@@ -37,11 +88,17 @@ export default function HistoryPage() {
         </p>
       </div>
 
-      <div className="space-y-3">
-        {historyList.map((item) => {
-          const comment = INITIAL_MOCK_COMMENTS.find((c) => c.id === item.comment_id);
-
-          return (
+      {isLoading ? (
+        <div className="p-8 text-center text-slate-400 text-sm">Loading audit history...</div>
+      ) : historyList.length === 0 ? (
+        <div className="p-12 text-center bg-slate-900/50 border border-slate-800 rounded-3xl space-y-2">
+          <History className="w-8 h-8 text-slate-500 mx-auto" />
+          <h3 className="text-base font-semibold text-slate-300">No Audit History Found</h3>
+          <p className="text-xs text-slate-400">Actions taken on YouTube comments will appear here in real time.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {historyList.map((item) => (
             <div
               key={item.id}
               className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl backdrop-blur-md flex items-start gap-4"
@@ -58,9 +115,9 @@ export default function HistoryPage() {
                   <span className="text-xs text-slate-400">{formatRelativeTime(item.created_at)}</span>
                 </div>
 
-                {comment && (
+                {item.comment && (
                   <p className="text-xs text-slate-400">
-                    Comment by <span className="text-slate-200 font-semibold">{comment.author_name}</span>: "{comment.comment_text}"
+                    Comment by <span className="text-slate-200 font-semibold">{item.comment.author_name}</span>: "{item.comment.comment_text}"
                   </p>
                 )}
 
@@ -70,7 +127,7 @@ export default function HistoryPage() {
                   </div>
                 )}
 
-                {item.youtube_reply_id && (
+                {item.youtube_reply_id && item.action === 'posted' && (
                   <p className="text-[11px] font-mono text-emerald-400 flex items-center gap-1">
                     <CheckCircle2 className="w-3.5 h-3.5" /> Published to YouTube (ID: {item.youtube_reply_id})
                   </p>
@@ -81,9 +138,9 @@ export default function HistoryPage() {
                 )}
               </div>
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

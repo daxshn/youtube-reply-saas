@@ -9,15 +9,14 @@ import EditReplyModal from '@/components/edit-reply-modal';
 import HistoryDrawer from '@/components/history-drawer';
 import { CommentCardSkeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/providers';
-import { INITIAL_MOCK_COMMENTS, INITIAL_MOCK_VIDEOS } from '@/lib/mock-data';
 import { CommentItem, FilterOptions, VideoItem } from '@/lib/types';
 import { MessageSquare, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function DashboardPage() {
   const { showToast } = useToast();
 
-  const [comments, setComments] = useState<CommentItem[]>(INITIAL_MOCK_COMMENTS);
-  const [videos, setVideos] = useState<VideoItem[]>(INITIAL_MOCK_VIDEOS);
+  const [comments, setComments] = useState<CommentItem[]>([]);
+  const [videos, setVideos] = useState<VideoItem[]>([]);
   const [channel, setChannel] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isFetchingNew, setIsFetchingNew] = useState(false);
@@ -46,13 +45,13 @@ export default function DashboardPage() {
       const res = await fetch('/api/comments/fetch');
       const data = await res.json();
       if (data.success) {
-        if (data.comments && data.comments.length > 0) {
+        if (data.comments) {
           setComments(data.comments);
         }
         if (data.channel) {
           setChannel(data.channel);
         }
-        if (data.videos && data.videos.length > 0) {
+        if (data.videos) {
           setVideos(data.videos);
         }
       }
@@ -77,7 +76,7 @@ export default function DashboardPage() {
       if (data.success) {
         showToast(data.message || 'Comments fetched successfully!', 'success');
         if (data.data && data.data.length > 0) {
-          setComments((prev) => [...data.data, ...prev]);
+          await fetchDashboardData();
         }
       } else {
         showToast(data.error || 'Failed to fetch new comments', 'error');

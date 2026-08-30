@@ -2,10 +2,9 @@
 
 import React from 'react';
 import Modal from './ui/modal';
-import { CommentItem, ReplyHistoryItem } from '@/lib/types';
+import { CommentItem } from '@/lib/types';
 import { formatRelativeTime } from '@/lib/utils';
-import { INITIAL_HISTORY } from '@/lib/mock-data';
-import { History, ShieldCheck, Sparkles, CheckCircle2, XCircle, RotateCw, Edit3 } from 'lucide-react';
+import { History, Sparkles, CheckCircle2, XCircle, RotateCw, Edit3 } from 'lucide-react';
 
 interface HistoryDrawerProps {
   comment: CommentItem | null;
@@ -13,11 +12,39 @@ interface HistoryDrawerProps {
   onClose: () => void;
 }
 
+interface ActivityItem {
+  id: string;
+  action: string;
+  action_by: string;
+  reply_text: string | null;
+  created_at: string;
+}
+
 export default function HistoryDrawer({ comment, isOpen, onClose }: HistoryDrawerProps) {
   if (!comment) return null;
 
-  // Filter history for this comment or fallback to initial mock history
-  const historyList = INITIAL_HISTORY.filter((h) => h.comment_id === comment.id);
+  const replyText = comment.generated_reply?.reply_text || null;
+
+  // Build activity log items dynamically from comment fields
+  const activityList: ActivityItem[] = [
+    {
+      id: `${comment.id}-created`,
+      action: 'received',
+      action_by: 'youtube',
+      reply_text: null,
+      created_at: comment.published_at,
+    },
+  ];
+
+  if (replyText) {
+    activityList.push({
+      id: `${comment.id}-generated`,
+      action: comment.reply_status === 'posted' ? 'posted' : comment.reply_status === 'rejected' ? 'rejected' : 'generated',
+      action_by: 'ai',
+      reply_text: replyText,
+      created_at: comment.updated_at || comment.created_at,
+    });
+  }
 
   const getActionIcon = (action: string) => {
     switch (action) {
@@ -48,43 +75,29 @@ export default function HistoryDrawer({ comment, isOpen, onClose }: HistoryDrawe
         <div className="space-y-3">
           <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Activity Log</h4>
 
-          {historyList.length === 0 ? (
-            <div className="bg-slate-950/40 p-4 rounded-xl text-center border border-slate-800 text-xs text-slate-400">
-              Initial AI generation recorded. Awaiting user approval action.
-            </div>
-          ) : (
-            historyList.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-start gap-3 bg-slate-950/60 border border-slate-800/80 p-3 rounded-xl text-xs"
-              >
-                <div className="p-2 rounded-lg bg-slate-900 border border-slate-800 shrink-0">
-                  {getActionIcon(item.action)}
-                </div>
-
-                <div className="space-y-1 flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-slate-200 capitalize">{item.action} by {item.action_by}</span>
-                    <span className="text-[10px] text-slate-500">{formatRelativeTime(item.created_at)}</span>
-                  </div>
-
-                  {item.reply_text && (
-                    <p className="text-slate-300 italic text-[11px] bg-slate-900/80 p-2 rounded border border-slate-800">
-                      "{item.reply_text}"
-                    </p>
-                  )}
-
-                  {item.error_message && (
-                    <p className="text-rose-400 text-[11px] font-medium">Error: {item.error_message}</p>
-                  )}
-
-                  {item.youtube_reply_id && (
-                    <p className="text-[10px] font-mono text-emerald-400">YouTube Reply ID: {item.youtube_reply_id}</p>
-                  )}
-                </div>
+          {activityList.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-start gap-3 bg-slate-950/60 border border-slate-800/80 p-3 rounded-xl text-xs"
+            >
+              <div className="p-2 rounded-lg bg-slate-900 border border-slate-800 shrink-0">
+                {getActionIcon(item.action)}
               </div>
-            ))
-          )}
+
+              <div className="space-y-1 flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-200 capitalize">{item.action} by {item.action_by}</span>
+                  <span className="text-[10px] text-slate-500">{formatRelativeTime(item.created_at)}</span>
+                </div>
+
+                {item.reply_text && (
+                  <p className="text-slate-300 italic text-[11px] bg-slate-900/80 p-2 rounded border border-slate-800">
+                    "{item.reply_text}"
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </Modal>
