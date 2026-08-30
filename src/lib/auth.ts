@@ -1,6 +1,7 @@
 import { NextAuthOptions } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import { getSupabaseAdmin } from './supabase/admin';
+import { fetchAndStoreChannelDetailsAndVideos } from './youtube/client';
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -19,9 +20,13 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async signIn({ user }) {
       const adminEmail = process.env.ADMIN_EMAIL;
-      if (adminEmail && user.email) {
-        if (user.email.toLowerCase() !== adminEmail.toLowerCase()) {
-          console.warn(`[Access Denied] Unauthorized login attempt blocked for: ${user.email}`);
+      const userEmail = user?.email?.toLowerCase();
+
+      console.log(`[Google Login Attempt] Authenticating email: ${userEmail}`);
+
+      if (adminEmail && userEmail) {
+        if (userEmail !== adminEmail.toLowerCase()) {
+          console.error(`[Access Denied] Unauthorized login attempt blocked for: ${userEmail}. Only ADMIN_EMAIL (${adminEmail}) is allowed.`);
           return false; // Triggers NextAuth AccessDenied error
         }
       }
@@ -29,7 +34,16 @@ export const authOptions: NextAuthOptions = {
     },
     async jwt({ token, account, profile }) {
       const adminEmail = process.env.ADMIN_EMAIL;
+
+      // Extract details from profile or token
+      if (profile) {
+        token.email = profile.email || token.email;
+        token.name = profile.name || token.name;
+        token.picture = (profile as any).picture || token.picture;
+      }
+
       if (adminEmail && token.email && token.email.toLowerCase() !== adminEmail.toLowerCase()) {
+        console.error(`[JWT Block] Invalid user email ${token.email} cleared from token.`);
         return {}; // Clear invalid token
       }
 
@@ -37,13 +51,16 @@ export const authOptions: NextAuthOptions = {
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
-        
-        // Sync user & tokens to Supabase if connected
-        const supabase = getSupabaseAdmin();
-        if (supabase && token.email) {
+
+        console.log(`[NextAuth JWT] Successfully received Google OAuth tokens for ${token.email}`);
+
+        // Sync user & YouTube tokens to Supabase
+        if (token.email) {
           try {
-            // Upsert User
-            const { data: user } = await supabase
+            const supabase = getSupabaseAdmin();
+            console.log(`[Supabase User Sync] Upserting user email=${token.email}...`);
+
+            const { data: user, error: userErr } = await supabase
               .from('users')
               .upsert({
                 email: token.email,
@@ -54,42 +71,29 @@ export const authOptions: NextAuthOptions = {
               .select()
               .single();
 
-            if (user && account.access_token) {
-              const expiresAtDate = account.expires_at 
-                ? new Date(account.expires_at * 1000).toISOString()
-                : new Date(Date.now() + 3600 * 1000).toISOString();
-
-              // Get existing refresh token if not in this callback
-              let refreshToken = account.refresh_token;
-              if (!refreshToken) {
-                const { data: existingAcc } = await supabase
-                  .from('youtube_accounts')
-                  .select('refresh_token')
-                  .eq('user_id', user.id)
-                  .maybeSingle();
-                refreshToken = existingAcc?.refresh_token;
-              }
-
-              // Upsert YouTube Account entry if we have a refresh token
-              if (refreshToken) {
-                await supabase.from('youtube_accounts').upsert({
-                  user_id: user.id,
-                  channel_id: (profile as any).sub || user.id,
-                  channel_title: user.name || 'YouTube Creator',
-                  channel_avatar: user.avatar_url,
-                  access_token: account.access_token,
-                  refresh_token: refreshToken,
-                  token_expires_at: expiresAtDate,
-                  is_active: true,
-                  updated_at: new Date().toISOString(),
-                }, { onConflict: 'channel_id' });
-              }
+            if (userErr || !user) {
+              console.error('[Supabase User Sync Error] Failed upserting user:', userErr);
+              throw new Error(`Failed to upsert user: ${userErr?.message}`);
             }
-          } catch (err) {
-            console.error('Error syncing Google OAuth user to Supabase:', err);
+
+            token.sub = user.id; // Store Supabase user UUID in token.sub!
+            console.log(`[Supabase User Sync Success] User ID: ${user.id} (${user.email})`);
+
+            if (account.access_token) {
+              console.log(`[YouTube Sync] Triggering automatic channel & video sync for user ${user.id}...`);
+              await fetchAndStoreChannelDetailsAndVideos(user.id, {
+                access_token: account.access_token,
+                refresh_token: account.refresh_token || '',
+                expires_at: account.expires_at,
+              });
+              console.log(`[YouTube Sync Success] Automatic channel & video sync completed for user ${user.id}`);
+            }
+          } catch (err: any) {
+            console.error('[Google OAuth Sync Error] Exception during user & YouTube sync:', err?.message || err);
           }
         }
       }
+
       return token;
     },
     async session({ session, token }) {
@@ -98,7 +102,7 @@ export const authOptions: NextAuthOptions = {
         return {} as any;
       }
       if (session.user) {
-        (session.user as any).id = token.sub;
+        (session.user as any).id = token.sub || token.id;
         (session.user as any).accessToken = token.accessToken;
       }
       return session;

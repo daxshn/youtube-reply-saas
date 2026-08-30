@@ -41,26 +41,40 @@ export async function generateAIReply({
   tone: CommentTone;
   modelUsed: string;
 }> {
-  const apiKey = userApiKey || process.env.OPENAI_API_KEY;
-  const baseURL = userBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-  const model = userModel || process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  console.log(`[AI Engine] Generating reply for author "${commentAuthor}" on video "${videoTitle}"...`);
+
+  // Detect OpenRouter vs OpenAI API Key & Base URL
+  const isOpenRouter = Boolean(process.env.OPENROUTER_API_KEY || userApiKey?.startsWith('sk-or-'));
+  const apiKey = userApiKey || process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
+
+  let baseURL = userBaseUrl || (isOpenRouter ? 'https://openrouter.ai/api/v1' : (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'));
+  let model = userModel || (isOpenRouter ? (process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini') : (process.env.OPENAI_MODEL || 'gpt-4o-mini'));
 
   const tone = detectCommentTone(commentText);
 
   // Fallback mode if API key is not configured
   if (!apiKey) {
+    console.warn('[AI Engine Warning] Neither OPENAI_API_KEY nor OPENROUTER_API_KEY found. Utilizing smart fallback mode.');
     const fallbackReply = generateFallbackReply(commentAuthor, commentText, tone);
     return {
       replyText: fallbackReply,
       tone,
-      modelUsed: `${model} (Demo Mode)`,
+      modelUsed: `${model} (Fallback Mode)`,
     };
   }
 
   try {
+    const defaultHeaders = isOpenRouter
+      ? {
+          'HTTP-Referer': process.env.NEXTAUTH_URL || 'https://replystudio.ai',
+          'X-Title': 'ReplyStudio AI SaaS',
+        }
+      : undefined;
+
     const openai = new OpenAI({
       apiKey,
       baseURL,
+      defaultHeaders,
     });
 
     const { systemPrompt, userPrompt } = constructAIReplyPrompt({
@@ -73,6 +87,8 @@ export async function generateAIReply({
       replyLength,
       previousReplies,
     });
+
+    console.log(`[AI Engine API Call] Calling ${isOpenRouter ? 'OpenRouter' : 'OpenAI'} API (Base URL: ${baseURL}, Model: ${model})...`);
 
     const response = await openai.chat.completions.create({
       model,
@@ -93,7 +109,7 @@ export async function generateAIReply({
     // Duplicate Protection: Check semantic similarity (>0.8 threshold) against previous replies
     for (const prev of previousReplies) {
       if (calculateSimilarity(replyText, prev) > 0.8) {
-        // High similarity detected! Retry with slight variation & elevated temperature
+        console.log('[AI Engine] High similarity detected with previous reply! Retrying generation with rephrase prompt...');
         const retryRes = await openai.chat.completions.create({
           model,
           messages: [
@@ -112,13 +128,15 @@ export async function generateAIReply({
       }
     }
 
+    console.log(`[AI Engine Success] Reply generated successfully: "${replyText}" (Model: ${model})`);
+
     return {
       replyText,
       tone,
-      modelUsed: model,
+      modelUsed: isOpenRouter ? `OpenRouter (${model})` : model,
     };
-  } catch (error) {
-    console.error('Error calling OpenAI API:', error);
+  } catch (error: any) {
+    console.error('[AI Engine Error] Exception calling AI completions endpoint:', error?.message || error);
     return {
       replyText: generateFallbackReply(commentAuthor, commentText, tone),
       tone,
@@ -134,7 +152,7 @@ function generateFallbackReply(author: string, commentText: string, tone: Commen
     case 'question':
       return `Great point ${author}! Check the video description for links or ask if you need more details.`;
     case 'criticism':
-      return `Appreciate the feedback ${author}. Will keep this in mind for the next video!`;
+      return `Appreciate the feedback ${author}. Will keep this in mind for future videos!`;
     case 'funny':
       return `Haha love this comment ${author}! Classic response.`;
     default:

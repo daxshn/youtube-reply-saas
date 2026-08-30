@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Only protect /dashboard and sub-routes
@@ -17,7 +17,7 @@ export async function middleware(req: NextRequest) {
     }
 
     if (adminEmail && token.email.toLowerCase() !== adminEmail.toLowerCase()) {
-      console.warn(`[Middleware Block] Non-admin email ${token.email} blocked from accessing ${pathname}`);
+      console.warn(`[Proxy Block] Non-admin email ${token.email} blocked from accessing ${pathname}`);
       const url = req.nextUrl.clone();
       url.pathname = '/auth/signin';
       url.searchParams.set('error', 'AccessDenied');

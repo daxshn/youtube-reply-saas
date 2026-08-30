@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import YouTubeConnectCard from '@/components/youtube-connect-card';
 import CommentFilters from '@/components/comment-filters';
 import CommentCard from '@/components/comment-card';
@@ -10,14 +10,16 @@ import HistoryDrawer from '@/components/history-drawer';
 import { CommentCardSkeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/providers';
 import { INITIAL_MOCK_COMMENTS, INITIAL_MOCK_VIDEOS } from '@/lib/mock-data';
-import { CommentItem, FilterOptions } from '@/lib/types';
-import { MessageSquare, Sparkles, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CommentItem, FilterOptions, VideoItem } from '@/lib/types';
+import { MessageSquare, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function DashboardPage() {
   const { showToast } = useToast();
 
   const [comments, setComments] = useState<CommentItem[]>(INITIAL_MOCK_COMMENTS);
-  const [isLoading, setIsLoading] = useState(false);
+  const [videos, setVideos] = useState<VideoItem[]>(INITIAL_MOCK_VIDEOS);
+  const [channel, setChannel] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [isFetchingNew, setIsFetchingNew] = useState(false);
   const [actionProcessingId, setActionProcessingId] = useState<string | null>(null);
 
@@ -36,6 +38,34 @@ export default function DashboardPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [editingComment, setEditingComment] = useState<CommentItem | null>(null);
   const [historyComment, setHistoryComment] = useState<CommentItem | null>(null);
+
+  // Load live data from Supabase DB on dashboard mount
+  const fetchDashboardData = async () => {
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/comments/fetch');
+      const data = await res.json();
+      if (data.success) {
+        if (data.comments && data.comments.length > 0) {
+          setComments(data.comments);
+        }
+        if (data.channel) {
+          setChannel(data.channel);
+        }
+        if (data.videos && data.videos.length > 0) {
+          setVideos(data.videos);
+        }
+      }
+    } catch (err: any) {
+      console.error('[Dashboard Error] Failed fetching data:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
 
   // Comment Fetcher Action
   const handleFetchNewComments = async () => {
@@ -90,7 +120,7 @@ export default function DashboardPage() {
       }
     } catch (err: any) {
       showToast(err.message || 'Error approving reply', 'error');
-    } fontally: {
+    } finally {
       setActionProcessingId(null);
     }
   };
@@ -297,7 +327,7 @@ export default function DashboardPage() {
     <div className="space-y-6 pb-20">
       
       {/* YouTube OAuth Connection Banner */}
-      <YouTubeConnectCard />
+      <YouTubeConnectCard channel={channel} />
 
       {/* Queue Header Title */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -325,7 +355,7 @@ export default function DashboardPage() {
       <CommentFilters
         filters={filters}
         onChangeFilters={(upd) => setFilters((prev) => ({ ...prev, ...upd }))}
-        videos={INITIAL_MOCK_VIDEOS}
+        videos={videos}
         totalCount={filteredComments.length}
       />
 

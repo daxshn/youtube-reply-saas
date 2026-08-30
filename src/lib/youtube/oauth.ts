@@ -8,6 +8,10 @@ export function getOAuth2Client() {
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
   const redirectUri = `${baseUrl}/api/auth/callback/google`;
 
+  if (!clientId || !clientSecret) {
+    console.error('[Google OAuth Config Error] GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is missing.');
+  }
+
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
@@ -17,9 +21,10 @@ export function getYouTubeAuthUrl() {
     access_type: 'offline',
     prompt: 'consent',
     scope: [
+      'openid',
+      'email',
+      'profile',
       'https://www.googleapis.com/auth/youtube.force-ssl',
-      'https://www.googleapis.com/auth/userinfo.profile',
-      'https://www.googleapis.com/auth/userinfo.email',
     ],
   });
 }
@@ -30,7 +35,6 @@ export function getYouTubeAuthUrl() {
  */
 export async function getValidYouTubeClient(userId: string) {
   const supabase = getSupabaseAdmin();
-  if (!supabase) return null;
 
   // Retrieve YouTube account details for user
   const { data: account, error } = await supabase
@@ -38,26 +42,36 @@ export async function getValidYouTubeClient(userId: string) {
     .select('*')
     .eq('user_id', userId)
     .eq('is_active', true)
-    .single();
+    .maybeSingle();
 
-  if (error || !account) {
-    return null;
+  if (error) {
+    console.error(`[YouTube OAuth Query Error] Failed to fetch youtube_account for user_id=${userId}:`, error);
+    throw new Error(`Supabase query error: ${error.message}`);
+  }
+
+  if (!account) {
+    console.error(`[YouTube OAuth Error] No active YouTube account found in DB for user_id=${userId}`);
+    throw new Error(`No active YouTube account found for user: ${userId}`);
   }
 
   let accessToken = account.access_token;
-  const expiresAt = new Date(account.token_expires_at).getTime();
+  const expiresAt = account.token_expires_at ? new Date(account.token_expires_at).getTime() : 0;
   const now = Date.now();
 
-  // If token expires in less than 5 minutes, refresh it automatically!
-  if (expiresAt - now < 5 * 60 * 1000) {
+  // If token expires in less than 5 minutes or is expired, refresh it automatically!
+  if (!accessToken || expiresAt - now < 5 * 60 * 1000) {
+    console.log(`[YouTube OAuth] Refreshing access token for user_id=${userId}, account_id=${account.id}...`);
     try {
+      if (!account.refresh_token) {
+        throw new Error('Refresh token is missing from YouTube account record');
+      }
       const refreshedToken = await refreshGoogleToken(account.refresh_token);
       if (refreshedToken && refreshedToken.access_token) {
         accessToken = refreshedToken.access_token;
         const newExpiry = new Date(Date.now() + refreshedToken.expires_in * 1000).toISOString();
 
         // Update database with refreshed token
-        await supabase
+        const { error: updateErr } = await supabase
           .from('youtube_accounts')
           .update({
             access_token: accessToken,
@@ -65,9 +79,16 @@ export async function getValidYouTubeClient(userId: string) {
             updated_at: new Date().toISOString(),
           })
           .eq('id', account.id);
+
+        if (updateErr) {
+          console.error('[YouTube OAuth DB Error] Failed to save refreshed token:', updateErr);
+        } else {
+          console.log(`[YouTube OAuth Success] Refreshed access token saved successfully for user_id=${userId}`);
+        }
       }
-    } catch (err) {
-      console.error('Error refreshing Google OAuth token:', err);
+    } catch (err: any) {
+      console.error('[YouTube OAuth Refresh Error] Exception refreshing token:', err?.message || err);
+      throw new Error(`Failed to refresh Google OAuth token: ${err?.message || 'Unknown error'}`);
     }
   }
 
@@ -87,7 +108,10 @@ async function refreshGoogleToken(refreshToken: string) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
-  if (!clientId || !clientSecret) return null;
+  if (!clientId || !clientSecret) {
+    console.error('[Google OAuth Config Error] Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET in refreshGoogleToken');
+    throw new Error('Missing Google OAuth environment variables');
+  }
 
   const response = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -103,7 +127,9 @@ async function refreshGoogleToken(refreshToken: string) {
   });
 
   if (!response.ok) {
-    throw new Error(`Token refresh failed: ${response.statusText}`);
+    const errorBody = await response.text();
+    console.error('[Google OAuth API Error] Token refresh HTTP request failed:', response.status, errorBody);
+    throw new Error(`Token refresh HTTP request failed (${response.status}): ${errorBody}`);
   }
 
   const data = await response.json();
@@ -112,3 +138,4 @@ async function refreshGoogleToken(refreshToken: string) {
     expires_in: data.expires_in as number, // seconds
   };
 }
+
