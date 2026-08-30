@@ -172,32 +172,46 @@ export async function POST(req: Request) {
         console.error(`[API POST /comments/fetch DB Error] Failed upserting video ${raw.youtubeVideoId}:`, videoErr);
       }
 
-      // 2. Insert Comment into database (store video.id UUID)
+      // 2. Check existing comment status before upserting
+      const { data: existingComment } = await supabase
+        .from('comments')
+        .select('id, reply_status')
+        .eq('youtube_comment_id', raw.youtubeCommentId)
+        .maybeSingle();
+
+      // Preserve existing status if comment has already been posted, approved, or rejected
+      const finalReplyStatus = existingComment?.reply_status || (isSpam ? 'rejected' : 'pending');
+      const videoIdUuid = video?.id || null;
+
+      if (!videoIdUuid) {
+        console.warn(`[API POST /comments/fetch Warning] Video UUID missing for ${raw.youtubeVideoId}`);
+        continue;
+      }
+
       const { data: comment, error: commentErr } = await supabase
         .from('comments')
-        .insert({
+        .upsert({
           youtube_account_id: fetchResult.youtubeAccountId,
-          video_id: video?.id || raw.youtubeVideoId,
+          video_id: videoIdUuid,
           youtube_comment_id: raw.youtubeCommentId,
           author_name: raw.authorName,
           author_avatar: raw.authorAvatar,
           author_channel_url: raw.authorChannelUrl,
           comment_text: raw.commentText,
           published_at: raw.publishedAt,
-          reply_status: isSpam ? 'rejected' : 'pending',
+          reply_status: finalReplyStatus,
           is_spam: isSpam,
-          is_duplicate: false,
-          is_deleted: false,
-        })
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'youtube_comment_id' })
         .select('*, generated_replies(*)')
         .single();
 
       if (commentErr || !comment) {
-        console.error(`[API POST /comments/fetch DB Error] Failed inserting comment ${raw.youtubeCommentId}:`, commentErr);
+        console.error(`[API POST /comments/fetch DB Error] Failed upserting comment ${raw.youtubeCommentId}:`, commentErr);
         continue;
       }
 
-      console.log(`[API POST /comments/fetch DB Success] Saved comment ${comment.id} by "${comment.author_name}"`);
+      console.log(`[API POST /comments/fetch DB Success] Upserted comment ${comment.id} by "${comment.author_name}" with status "${finalReplyStatus}"`);
 
       const commentWithVideo = { ...comment, video: video || null };
 
@@ -206,7 +220,7 @@ export async function POST(req: Request) {
         const { count: commentCount } = await supabase
           .from('comments')
           .select('*', { count: 'exact', head: true })
-          .or(`video_id.eq.${video.id},video_id.eq.${raw.youtubeVideoId}`);
+          .eq('video_id', video.id);
 
         if (commentCount !== null && commentCount !== undefined) {
           await supabase
@@ -216,39 +230,49 @@ export async function POST(req: Request) {
         }
       }
 
-      // 3. If not spam, generate AI reply draft
+      // 3. If not spam, handle AI reply draft
       if (!isSpam) {
-        const aiResult = await generateAIReply({
-          commentText: comment.comment_text,
-          commentAuthor: comment.author_name,
-          videoTitle: raw.videoTitle,
-        });
-
-        const { data: genReply, error: genErr } = await supabase
+        const { data: existingGenReply } = await supabase
           .from('generated_replies')
-          .insert({
-            comment_id: comment.id,
-            reply_text: aiResult.replyText,
-            model_used: aiResult.modelUsed,
-            tone: aiResult.tone,
-            temperature: 0.7,
-            is_approved: false, // Human approval required before posting
-            is_active: true,
-          })
-          .select()
-          .single();
+          .select('*')
+          .eq('comment_id', comment.id)
+          .maybeSingle();
 
-        if (genErr) {
-          console.error(`[API POST /comments/fetch DB Error] Failed saving generated reply for comment ${comment.id}:`, genErr);
+        let genReply = existingGenReply;
+
+        if (!genReply) {
+          const aiResult = await generateAIReply({
+            commentText: comment.comment_text,
+            commentAuthor: comment.author_name,
+            videoTitle: raw.videoTitle,
+          });
+
+          const { data: newGenReply, error: genErr } = await supabase
+            .from('generated_replies')
+            .insert({
+              comment_id: comment.id,
+              reply_text: aiResult.replyText,
+              model_used: aiResult.modelUsed,
+              tone: aiResult.tone,
+              temperature: 0.7,
+              is_approved: false,
+              is_active: true,
+            })
+            .select()
+            .single();
+
+          if (genErr) {
+            console.error(`[API POST /comments/fetch DB Error] Failed saving generated reply for comment ${comment.id}:`, genErr);
+          } else {
+            genReply = newGenReply;
+            await supabase.from('reply_history').insert({
+              comment_id: comment.id,
+              action: 'generated',
+              action_by: 'AI Engine',
+              reply_text: aiResult.replyText,
+            });
+          }
         }
-
-        // Record audit log entry
-        await supabase.from('reply_history').insert({
-          comment_id: comment.id,
-          action: 'generated',
-          action_by: 'AI Engine',
-          reply_text: aiResult.replyText,
-        });
 
         processedComments.push({ ...commentWithVideo, generated_reply: genReply });
       } else {

@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { MessageSquare, BarChart3, History, Settings, ShieldCheck, X } from 'lucide-react';
@@ -13,8 +13,28 @@ interface SidebarProps {
   pendingCount?: number;
 }
 
-export default function Sidebar({ isOpenMobile = false, onCloseMobile, pendingCount = 4 }: SidebarProps) {
+export default function Sidebar({ isOpenMobile = false, onCloseMobile, pendingCount = 0 }: SidebarProps) {
   const pathname = usePathname();
+  const [channel, setChannel] = useState<{
+    channel_id: string;
+    channel_title: string;
+    channel_avatar?: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    async function loadChannel() {
+      try {
+        const res = await fetch('/api/comments/fetch');
+        const data = await res.json();
+        if (data.success && data.channel) {
+          setChannel(data.channel);
+        }
+      } catch (err) {
+        console.error('[Sidebar] Error loading channel:', err);
+      }
+    }
+    loadChannel();
+  }, []);
 
   const navItems = [
     {
@@ -54,17 +74,34 @@ export default function Sidebar({ isOpenMobile = false, onCloseMobile, pendingCo
           </button>
         </div>
 
-        {/* Channel Card Banner */}
+        {/* Dynamic Connected Channel Card */}
         <div className="bg-gradient-to-br from-slate-900 via-indigo-950/40 to-slate-900 border border-slate-800/80 rounded-2xl p-4 space-y-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-red-600/20 border border-red-500/30 flex items-center justify-center text-red-400 font-bold shrink-0">
-              YT
-            </div>
+            {channel?.channel_avatar ? (
+              <img
+                src={channel.channel_avatar}
+                alt={channel.channel_title}
+                className="w-10 h-10 rounded-full border border-emerald-500/30 object-cover shrink-0"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-red-600/20 border border-red-500/30 flex items-center justify-center text-red-400 font-bold shrink-0">
+                {channel?.channel_title ? channel.channel_title.charAt(0) : 'YT'}
+              </div>
+            )}
+
             <div className="min-w-0">
-              <h4 className="text-sm font-semibold text-white truncate">Tech Studio Channel</h4>
-              <p className="text-xs text-emerald-400 font-medium flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> OAuth Active
-              </p>
+              <h4 className="text-sm font-semibold text-white truncate">
+                {channel?.channel_title || 'Connect Channel'}
+              </h4>
+              {channel ? (
+                <p className="text-xs text-emerald-400 font-medium flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> OAuth Active
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500 font-medium flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-500" /> Not Connected
+                </p>
+              )}
             </div>
           </div>
           <div className="bg-slate-950/60 rounded-xl p-2.5 text-[11px] text-slate-400 flex items-center justify-between border border-slate-800/50">
