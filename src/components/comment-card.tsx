@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import { CommentItem } from '@/lib/types';
 import { StatusBadge, ToneBadge } from './ui/badge';
 import { formatRelativeTime } from '@/lib/utils';
-import { Check, Edit3, Trash2, RotateCw, ExternalLink, Sparkles, AlertTriangle, ShieldAlert, History as HistoryIcon, Send } from 'lucide-react';
+import { Edit3, Trash2, RotateCw, ExternalLink, Sparkles, AlertTriangle, ShieldAlert, History as HistoryIcon, Send } from 'lucide-react';
 
 interface CommentCardProps {
   comment: CommentItem;
@@ -32,7 +32,6 @@ export default function CommentCard({
   isProcessing = false,
 }: CommentCardProps) {
   const isPending = comment.reply_status === 'pending';
-  const isPosted = comment.reply_status === 'posted';
   const isFailed = comment.reply_status === 'failed';
   const replyText = comment.generated_reply?.reply_text;
 
@@ -59,7 +58,7 @@ export default function CommentCard({
           <div className="min-w-0">
             <h3 className="text-xs font-semibold text-slate-400 truncate flex items-center gap-1.5">
               <span>Video:</span>
-              <span className="text-slate-200 font-medium">{comment.video?.title || 'YouTube Upload'}</span>
+              <span className="text-slate-200 font-medium">{comment.video?.title || 'Video'}</span>
             </h3>
           </div>
         </div>
