@@ -34,7 +34,7 @@ export async function POST(req: Request) {
           const { data: video } = await supabase
             .from('videos')
             .upsert({
-              youtube_account_id: raw.youtubeCommentId, // Linked account ID
+              youtube_account_id: youtubeAccount.id, // Linked account ID
               youtube_video_id: raw.youtubeVideoId,
               title: raw.videoTitle,
               updated_at: new Date().toISOString(),
@@ -46,9 +46,9 @@ export async function POST(req: Request) {
           const { data: comment, error: commentErr } = await supabase
             .from('comments')
             .insert({
-              youtube_account_id: raw.youtubeCommentId,
+              youtube_account_id: youtubeAccount.id,
               video_id: video?.id,
-              youtube_comment_id: raw.youtubeCommentId,
+              youtube_comment_id: youtubeAccount.id,
               author_name: raw.authorName,
               author_avatar: raw.authorAvatar,
               author_channel_url: raw.authorChannelUrl,
