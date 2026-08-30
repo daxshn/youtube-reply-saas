@@ -7,7 +7,8 @@ export async function proxy(req: NextRequest) {
   // Only protect /dashboard and sub-routes
   if (pathname.startsWith('/dashboard')) {
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET || 'super-secret-nextauth-key-change-in-prod' });
-    const adminEmail = process.env.ADMIN_EMAIL;
+    const rawAdminEmail = process.env.ADMIN_EMAIL;
+    const adminEmail = rawAdminEmail ? rawAdminEmail.replace(/['"]/g, '').trim().toLowerCase() : null;
 
     // If no token or email doesn't match admin email
     if (!token || !token.email) {
@@ -16,8 +17,10 @@ export async function proxy(req: NextRequest) {
       return NextResponse.redirect(url);
     }
 
-    if (adminEmail && token.email.toLowerCase() !== adminEmail.toLowerCase()) {
-      console.warn(`[Proxy Block] Non-admin email ${token.email} blocked from accessing ${pathname}`);
+    const userEmail = token.email.trim().toLowerCase();
+
+    if (adminEmail && userEmail !== adminEmail) {
+      console.warn(`[Proxy Block] Non-admin email ${userEmail} blocked from accessing ${pathname}`);
       const url = req.nextUrl.clone();
       url.pathname = '/auth/signin';
       url.searchParams.set('error', 'AccessDenied');
