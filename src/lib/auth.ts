@@ -64,26 +64,34 @@ export const authOptions: NextAuthOptions = {
       if (token.email) {
         try {
           const supabase = getSupabaseAdmin();
-          console.log(`[Supabase User Sync] Processing user email=${token.email}...`);
+          console.log("TOKEN EMAIL:", token.email);
 
-          const { data: dbUser, error: userErr } = await supabase
-            .from('users')
-            .upsert({
-              email: token.email,
-              name: token.name || 'Creator',
-              avatar_url: token.picture || null,
-              updated_at: new Date().toISOString(),
-            }, { onConflict: 'email' })
+          const { data: dbUser, error } = await supabase
+            .from("users")
+            .upsert(
+              {
+                email: token.email,
+                name: token.name,
+                avatar_url: token.picture,
+                updated_at: new Date().toISOString(),
+              },
+              {
+                onConflict: "email",
+              }
+            )
             .select()
             .single();
 
-          if (userErr || !dbUser) {
-            console.error('[Supabase User Sync Error] Failed upserting user:', userErr);
-            throw new Error(`Failed to upsert user: ${userErr?.message}`);
+          console.log("DB USER =", dbUser);
+          console.log("DB ERROR =", error);
+
+          if (error || !dbUser) {
+            console.error('[Supabase User Sync Error] Failed upserting user:', error);
+            throw new Error(`Failed to upsert user: ${error?.message}`);
           }
 
           // Enforce Supabase UUID in token.sub!
-          token.sub = User.id;
+          token.sub = dbUser.id;
           console.log(`SUPABASE USER: ${dbUser.id}`);
 
           if (account && account.access_token) {
